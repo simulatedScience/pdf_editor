@@ -1,13 +1,17 @@
+
 import tkinter as tk
 from tkinter import filedialog
 from PyPDF2 import PdfReader, PdfWriter
 import os
+import math
 from pdf2image import convert_from_path
-from PIL import Image, ImageTk, ImageDraw
+from PIL import Image, ImageTk
+
+# --- Custom UI Components ---
 
 class RoundedButton(tk.Canvas):
     def __init__(self, parent, text, command, bg="#4A90E2", hover_bg="#357ABD", 
-                 fg="white", width=120, height=40, radius=8, **kwargs):
+                 fg="white", width=120, height=40, radius=8, font=("Segoe UI", 10, "bold"), **kwargs):
         super().__init__(parent, width=width, height=height, 
                         highlightthickness=0, bg=parent.cget('bg'), **kwargs)
         self.command = command
@@ -16,6 +20,7 @@ class RoundedButton(tk.Canvas):
         self.fg = fg
         self.text = text
         self.radius = radius
+        self.font = font
         self.enabled = True
         
         self.draw_button(bg)
@@ -28,302 +33,210 @@ class RoundedButton(tk.Canvas):
         w, h = self.winfo_reqwidth(), self.winfo_reqheight()
         r = self.radius
         
-        # Create rounded rectangle using polygons
-        points = [
-            r, 0,
-            w-r, 0,
-            w, 0,
-            w, r,
-            w, h-r,
-            w, h,
-            w-r, h,
-            r, h,
-            0, h,
-            0, h-r,
-            0, r,
-            0, 0
-        ]
-        
+        # Rounded rectangle
+        points = [r,0, w-r,0, w,0, w,r, w,h-r, w,h, w-r,h, r,h, 0,h, 0,h-r, 0,r, 0,0]
         self.create_polygon(points, fill=color, smooth=True, outline="")
-        self.create_text(w//2, h//2, text=self.text, fill=self.fg, 
-                        font=("Segoe UI", 10, "bold"))
+        self.create_text(w//2, h//2, text=self.text, fill=self.fg, font=self.font)
     
     def on_enter(self, e):
-        if self.enabled:
-            self.draw_button(self.hover_bg)
+        if self.enabled: self.draw_button(self.hover_bg)
     
     def on_leave(self, e):
         self.draw_button(self.bg if self.enabled else "#cccccc")
     
     def on_click(self, e):
-        if self.command and self.enabled:
-            self.command()
-    
+        if self.command and self.enabled: self.command()
+
     def set_enabled(self, enabled):
         self.enabled = enabled
         self.draw_button(self.bg if enabled else "#cccccc")
 
-class RoundedFrame(tk.Canvas):
-    def __init__(self, parent, bg="#ffffff", radius=12, **kwargs):
-        super().__init__(parent, highlightthickness=0, **kwargs)
-        self.bg = bg
-        self.radius = radius
-        self.configure(bg=parent.cget('bg'))
-        self.bind("<Configure>", self.draw_rounded_rect)
-    
-    def draw_rounded_rect(self, event=None):
-        self.delete("all")
-        w, h = self.winfo_width(), self.winfo_height()
-        r = self.radius
-        
-        points = [
-            r, 0,
-            w-r, 0,
-            w, 0,
-            w, r,
-            w, h-r,
-            w, h,
-            w-r, h,
-            r, h,
-            0, h,
-            0, h-r,
-            0, r,
-            0, 0
-        ]
-        
-        self.create_polygon(points, fill=self.bg, smooth=True, outline="")
-
 class MessageBanner(tk.Frame):
     def __init__(self, parent, **kwargs):
         super().__init__(parent, **kwargs)
-        self.config(bg=parent.cget('bg'), height=60)
+        self.config(bg=parent.cget('bg'), height=0) # Start hidden
         self.pack_propagate(False)
-        
         self.message_frame = None
         self.after_id = None
     
     def show_message(self, message, msg_type="info"):
-        # Clear existing message
-        if self.message_frame:
-            self.message_frame.destroy()
-        if self.after_id:
-            self.after_cancel(self.after_id)
+        if self.message_frame: self.message_frame.destroy()
+        if self.after_id: self.after_cancel(self.after_id)
         
-        # Color scheme based on type
+        self.config(height=50) # Expand
+        
         colors = {
             "success": ("#d4edda", "#155724", "✓"),
             "error": ("#f8d7da", "#721c24", "✗"),
             "warning": ("#fff3cd", "#856404", "⚠"),
             "info": ("#d1ecf1", "#0c5460", "ℹ")
         }
-        
         bg, fg, icon = colors.get(msg_type, colors["info"])
         
-        self.message_frame = tk.Frame(self, bg=bg, relief=tk.FLAT, bd=1)
-        self.message_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
+        self.message_frame = tk.Frame(self, bg=bg)
+        self.message_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=5)
         
         content = tk.Frame(self.message_frame, bg=bg)
-        content.pack(expand=True)
+        content.pack(expand=True, fill=tk.Y)
         
-        tk.Label(content, text=icon, font=("Segoe UI", 16), 
-                fg=fg, bg=bg).pack(side=tk.LEFT, padx=(10, 5))
-        tk.Label(content, text=message, font=("Segoe UI", 10), 
-                fg=fg, bg=bg).pack(side=tk.LEFT, padx=5)
+        tk.Label(content, text=icon, font=("Segoe UI", 14), fg=fg, bg=bg).pack(side=tk.LEFT, padx=5)
+        tk.Label(content, text=message, font=("Segoe UI", 10), fg=fg, bg=bg).pack(side=tk.LEFT, padx=5)
         
-        # Auto-hide after 5 seconds
-        self.after_id = self.after(5000, self.hide_message)
+        self.after_id = self.after(4000, self.hide_message)
     
     def hide_message(self):
-        if self.message_frame:
-            self.message_frame.destroy()
-            self.message_frame = None
+        if self.message_frame: self.message_frame.destroy()
+        self.config(height=0) # Collapse
 
-class PageThumbnail(tk.Frame):
-    def __init__(self, parent, page_num, is_selected, click_callback, **kwargs):
+# --- Core Data Class ---
+
+class PageData:
+    """Stores information about a specific page from a specific file."""
+    def __init__(self, source_path, page_index, image, display_index_str):
+        self.source_path = source_path
+        self.page_index = page_index # 0-based index in original file
+        self.image = image
+        self.display_index_str = display_index_str # e.g. "Doc1 - Pg 1"
+        self.id = f"{source_path}_{page_index}" # Unique ID
+
+# --- Draggable Thumbnail Widget ---
+
+class DraggableThumbnail(tk.Frame):
+    def __init__(self, parent, page_data, selection_callback, drag_start_callback, drag_end_callback, **kwargs):
         super().__init__(parent, **kwargs)
-        self.page_num = page_num
-        self.is_selected = is_selected
-        self.click_callback = click_callback
+        self.page_data = page_data
+        self.selection_callback = selection_callback
+        self.drag_start_callback = drag_start_callback
+        self.drag_end_callback = drag_end_callback
+        self.is_selected = False
         
-        self.config(relief=tk.FLAT, bd=0, bg="#ffffff")
+        self.config(bg="white", relief=tk.FLAT, bd=1)
         
-        # Container with rounded corners effect
-        self.container = tk.Frame(self, bg="#ffffff")
-        self.container.pack(padx=3, pady=3)
+        # Inner container for visual padding
+        self.inner = tk.Frame(self, bg="white", padx=5, pady=5)
+        self.inner.pack(fill=tk.BOTH, expand=True)
         
-        # Thumbnail placeholder
-        self.canvas = tk.Canvas(self.container, width=100, height=130, bg="#f0f0f0", 
+        # Image Canvas
+        self.canvas = tk.Canvas(self.inner, width=100, height=130, bg="#f0f0f0", 
                                highlightthickness=0, bd=0)
-        self.canvas.pack(padx=5, pady=5)
+        self.canvas.pack()
         
-        # Page number label
-        self.label = tk.Label(self.container, text=f"Page {page_num}", 
-                             font=("Segoe UI", 9), bg="#ffffff")
-        self.label.pack(pady=(0, 5))
+        # Set Image
+        self.photo = ImageTk.PhotoImage(page_data.image.resize((100, 130)))
+        self.canvas.create_image(50, 65, image=self.photo)
         
-        # Bind click events
-        self.bind("<Button-1>", self.on_click)
-        self.container.bind("<Button-1>", self.on_click)
-        self.canvas.bind("<Button-1>", self.on_click)
-        self.label.bind("<Button-1>", self.on_click)
+        # Label
+        self.lbl = tk.Label(self.inner, text=page_data.display_index_str, 
+                           font=("Segoe UI", 8), bg="white", fg="#666")
+        self.lbl.pack(pady=(4,0))
         
-        self.update_appearance()
-    
-    def on_click(self, e):
-        self.click_callback(self.page_num)
-    
+        # Bindings for selection and dragging
+        for widget in [self, self.inner, self.canvas, self.lbl]:
+            widget.bind("<Button-1>", self.on_click_start)
+            widget.bind("<B1-Motion>", self.on_drag_motion)
+            widget.bind("<ButtonRelease-1>", self.on_drag_release)
+
+        self._drag_started = False
+        self._start_x = 0
+        self._start_y = 0
+
     def set_selected(self, selected):
         self.is_selected = selected
-        self.update_appearance()
-    
-    def update_appearance(self):
-        if self.is_selected:
-            self.config(bg="#ffebee", relief=tk.SOLID, bd=3, 
-                       highlightbackground="#e53935", highlightthickness=0)
-            self.container.config(bg="#ffebee")
-            self.label.config(bg="#ffebee", fg="#c62828", font=("Segoe UI", 9, "bold"))
-            self.canvas.config(bg="#ffe0e0")
-        else:
-            self.config(bg="#ffffff", relief=tk.FLAT, bd=1,
-                       highlightthickness=0)
-            self.container.config(bg="#ffffff")
-            self.label.config(bg="#ffffff", fg="#333333", font=("Segoe UI", 9))
-            self.canvas.config(bg="#f0f0f0")
-    
-    def set_preview(self, image):
-        """Set thumbnail preview image"""
-        try:
-            image.thumbnail((90, 120), Image.Resampling.LANCZOS)
-            photo = ImageTk.PhotoImage(image)
-            self.canvas.delete("all")
-            self.canvas.create_image(50, 65, image=photo)
-            self.canvas.image = photo
-        except Exception as e:
-            print(f"Error setting preview: {e}")
+        color = "#ffcccc" if selected else "white"
+        border = "#e53935" if selected else "white"
+        thickness = 2 if selected else 1
+        
+        self.config(bg=border, bd=thickness)
+        self.inner.config(bg=color)
+        self.lbl.config(bg=color, fg="#c62828" if selected else "#666")
+        self.canvas.config(bg=color)
 
-class PDFPageDeleter:
+    def on_click_start(self, event):
+        self._drag_started = False
+        self._start_x = event.x
+        self._start_y = event.y
+        # Immediate visual feedback for selection
+        self.selection_callback(self, event.state & 0x0004) # Check for Ctrl key
+
+    def on_drag_motion(self, event):
+        # Threshold to detect drag vs click
+        if not self._drag_started and (abs(event.x - self._start_x) > 5 or abs(event.y - self._start_y) > 5):
+            self._drag_started = True
+            self.drag_start_callback(self, event)
+        
+        if self._drag_started:
+            # We don't move self; the controller creates a 'ghost' window
+            pass 
+
+    def on_drag_release(self, event):
+        if self._drag_started:
+            self.drag_end_callback(event)
+            self._drag_started = False
+
+# --- Main Application ---
+
+class PDFEditorApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("PDF Page Deleter")
-        self.root.geometry("950x750")
+        self.root.title("Modern PDF Editor")
+        self.root.geometry("1100x800")
         self.root.config(bg="#f5f5f5")
         
-        self.pdf_path = None
-        self.output_path = None
-        self.total_pages = 0
-        self.selected_pages = set()
-        self.thumbnails = []
-        self.preview_images = []
+        # State
+        self.pages_data = [] # List of PageData objects (Ordered)
+        self.page_widgets = [] # List of DraggableThumbnail widgets
+        self.selected_indices = set()
         
-        self.create_widgets()
+        # Drag State
+        self.drag_data = {"item_idx": None, "window": None}
+
+        self.setup_ui()
     
-    def create_widgets(self):
-        # Header
-        header = tk.Frame(self.root, bg="#2c3e50", height=80)
-        header.pack(fill=tk.X)
-        header.pack_propagate(False)
+    def setup_ui(self):
+        # 1. Top Bar (File Ops & Output)
+        top_bar = tk.Frame(self.root, bg="white", pady=15, padx=20)
+        top_bar.pack(fill=tk.X)
         
-        title = tk.Label(header, text="PDF Page Deleter", 
-                        font=("Segoe UI", 24, "bold"), 
-                        fg="white", bg="#2c3e50")
-        title.pack(pady=20)
+        # Input/Add Buttons
+        tk.Label(top_bar, text="Actions:", font=("Segoe UI", 10, "bold"), bg="white").pack(side=tk.LEFT)
+        RoundedButton(top_bar, "Add PDF", self.add_pdf, width=100, height=30, bg="#4A90E2").pack(side=tk.LEFT, padx=10)
+        RoundedButton(top_bar, "Insert After Selected", self.insert_pdf_at_selection, width=160, height=30, bg="#357ABD").pack(side=tk.LEFT, padx=0)
+
+        # Output Path
+        tk.Frame(top_bar, width=20, bg="white").pack(side=tk.LEFT) # Spacer
+        tk.Label(top_bar, text="Output:", font=("Segoe UI", 10, "bold"), bg="white").pack(side=tk.LEFT)
         
-        # Message banner
-        self.message_banner = MessageBanner(self.root)
-        self.message_banner.pack(fill=tk.X)
+        self.output_var = tk.StringVar()
+        self.output_entry = tk.Entry(top_bar, textvariable=self.output_var, width=40, font=("Segoe UI", 10), bd=1, relief=tk.SOLID)
+        self.output_entry.pack(side=tk.LEFT, padx=10, ipady=4)
         
-        # Control panel
-        control_frame = tk.Frame(self.root, bg="#ffffff", height=140)
-        control_frame.pack(fill=tk.X, padx=20, pady=20)
-        control_frame.pack_propagate(False)
+        RoundedButton(top_bar, "Browse", self.browse_output, width=80, height=30, bg="#95a5a6").pack(side=tk.LEFT)
+
+        # 2. Message Banner
+        self.banner = MessageBanner(self.root)
+        self.banner.pack(fill=tk.X)
+
+        # 3. Main Workspace (Scrollable)
+        work_frame = tk.Frame(self.root, bg="#f5f5f5")
+        work_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
+
+        # Toolbar above grid
+        toolbar = tk.Frame(work_frame, bg="#f5f5f5")
+        toolbar.pack(fill=tk.X, pady=(0, 10))
         
-        # Left side - file info
-        left_controls = tk.Frame(control_frame, bg="#ffffff")
-        left_controls.pack(side=tk.LEFT, padx=20, pady=20, anchor=tk.W)
+        self.info_label = tk.Label(toolbar, text="0 Pages loaded", bg="#f5f5f5", fg="#666", font=("Segoe UI", 11))
+        self.info_label.pack(side=tk.LEFT)
         
-        tk.Label(left_controls, text="Input PDF:", 
-                font=("Segoe UI", 9), fg="#999999", bg="#ffffff").pack(anchor=tk.W)
+        # Right aligned action buttons
+        RoundedButton(toolbar, "Clear All", self.clear_all, bg="#7f8c8d", width=90, height=30).pack(side=tk.RIGHT, padx=5)
+        RoundedButton(toolbar, "Remove Selected", self.remove_selected, bg="#e53935", hover_bg="#c62828", width=140, height=30).pack(side=tk.RIGHT, padx=5)
+
+        # The Grid Area
+        self.canvas = tk.Canvas(work_frame, bg="#e0e0e0", highlightthickness=0)
+        scrollbar = tk.Scrollbar(work_frame, orient=tk.VERTICAL, command=self.canvas.yview)
         
-        self.file_label = tk.Label(left_controls, text="No file selected", 
-                                   font=("Segoe UI", 11), 
-                                   fg="#666666", bg="#ffffff")
-        self.file_label.pack(anchor=tk.W, pady=(2, 8))
-        
-        tk.Label(left_controls, text="Output PDF:", 
-                font=("Segoe UI", 9), fg="#999999", bg="#ffffff").pack(anchor=tk.W)
-        
-        self.output_label = tk.Label(left_controls, text="Not set", 
-                                     font=("Segoe UI", 11), 
-                                     fg="#666666", bg="#ffffff")
-        self.output_label.pack(anchor=tk.W, pady=(2, 8))
-        
-        info_frame = tk.Frame(left_controls, bg="#ffffff")
-        info_frame.pack(anchor=tk.W)
-        
-        self.pages_label = tk.Label(info_frame, text="", 
-                                    font=("Segoe UI", 9), 
-                                    fg="#999999", bg="#ffffff")
-        self.pages_label.pack(side=tk.LEFT)
-        
-        self.selected_label = tk.Label(info_frame, text="", 
-                                       font=("Segoe UI", 9, "bold"), 
-                                       fg="#e53935", bg="#ffffff")
-        self.selected_label.pack(side=tk.LEFT, padx=(15, 0))
-        
-        # Right side - buttons
-        right_controls = tk.Frame(control_frame, bg="#ffffff")
-        right_controls.pack(side=tk.RIGHT, padx=20, pady=20)
-        
-        btn_row1 = tk.Frame(right_controls, bg="#ffffff")
-        btn_row1.pack(pady=(0, 8))
-        
-        RoundedButton(btn_row1, "Open PDF", self.browse_file, 
-                    bg="#4A90E2", hover_bg="#357ABD", 
-                    width=130, height=36, radius=8).pack(side=tk.LEFT, padx=3)
-        
-        RoundedButton(btn_row1, "Set Output", self.choose_output, 
-                    bg="#9C27B0", hover_bg="#7B1FA2", 
-                    width=130, height=36, radius=8).pack(side=tk.LEFT, padx=3)
-        
-        btn_row2 = tk.Frame(right_controls, bg="#ffffff")
-        btn_row2.pack()
-        
-        RoundedButton(btn_row2, "Select All", self.select_all, 
-                    bg="#7B68EE", hover_bg="#6A5ACD", 
-                    width=90, height=36, radius=8).pack(side=tk.LEFT, padx=3)
-        
-        RoundedButton(btn_row2, "Clear", self.clear_selection, 
-                    bg="#95a5a6", hover_bg="#7f8c8d", 
-                    width=70, height=36, radius=8).pack(side=tk.LEFT, padx=3)
-        
-        self.delete_btn = RoundedButton(btn_row2, "Delete & Save", self.delete_pages, 
-                    bg="#e53935", hover_bg="#c62828", 
-                    width=140, height=36, radius=8)
-        self.delete_btn.pack(side=tk.LEFT, padx=3)
-        
-        # Main content area
-        content_frame = tk.Frame(self.root, bg="#f5f5f5")
-        content_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=(0, 20))
-        
-        # Instructions
-        instr = tk.Label(content_frame, 
-                        text="Click on pages below to mark them for deletion", 
-                        font=("Segoe UI", 10), 
-                        fg="#666666", bg="#f5f5f5")
-        instr.pack(pady=(0, 10))
-        
-        # Scrollable page grid
-        canvas_frame = tk.Frame(content_frame, bg="#ffffff", relief=tk.FLAT, bd=0)
-        canvas_frame.pack(fill=tk.BOTH, expand=True)
-        
-        self.canvas = tk.Canvas(canvas_frame, bg="#ffffff", highlightthickness=0)
-        scrollbar = tk.Scrollbar(canvas_frame, orient=tk.VERTICAL, command=self.canvas.yview)
-        self.scrollable_frame = tk.Frame(self.canvas, bg="#ffffff")
-        
-        self.scrollable_frame.bind(
-            "<Configure>",
-            lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all"))
-        )
+        self.scrollable_frame = tk.Frame(self.canvas, bg="#e0e0e0")
+        self.scrollable_frame.bind("<Configure>", lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all")))
         
         self.canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
         self.canvas.configure(yscrollcommand=scrollbar.set)
@@ -331,207 +244,280 @@ class PDFPageDeleter:
         self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         
-        # Bind mousewheel
-        self.canvas.bind_all("<MouseWheel>", self._on_mousewheel)
+        # Mousewheel binding
+        self.canvas.bind_all("<MouseWheel>", lambda e: self.canvas.yview_scroll(int(-1*(e.delta/120)), "units"))
         
-        # Empty state
-        self.empty_label = tk.Label(self.scrollable_frame, 
-                                    text="Open a PDF file to get started", 
-                                    font=("Segoe UI", 14), 
-                                    fg="#cccccc", bg="#ffffff")
-        self.empty_label.pack(pady=100)
-    
-    def _on_mousewheel(self, event):
-        self.canvas.yview_scroll(int(-1*(event.delta/120)), "units")
-    
-    def browse_file(self):
-        filename = filedialog.askopenfilename(
-            title="Select PDF file",
-            filetypes=[("PDF files", "*.pdf"), ("All files", "*.*")]
-        )
+        # 4. Bottom Save Bar
+        bottom_bar = tk.Frame(self.root, bg="white", height=70)
+        bottom_bar.pack(fill=tk.X, side=tk.BOTTOM)
+        bottom_bar.pack_propagate(False)
         
-        if filename:
-            self.load_pdf(filename)
-    
-    def choose_output(self):
-        if not self.pdf_path:
-            self.message_banner.show_message("Please open a PDF file first", "warning")
+        RoundedButton(bottom_bar, "Save Final PDF", self.save_pdf, bg="#27ae60", hover_bg="#219150", width=200, height=45, radius=10, font=("Segoe UI", 12, "bold")).pack(pady=12)
+
+    # --- Logic ---
+
+    def add_pdf(self, insert_index=None):
+        filenames = filedialog.askopenfilenames(title="Select PDF(s)", filetypes=[("PDF files", "*.pdf")])
+        if not filenames: return
+        
+        self.process_files(filenames, insert_index)
+
+    def insert_pdf_at_selection(self):
+        # Insert after the last selected item, or at end if nothing selected
+        if not self.selected_indices:
+            self.add_pdf() # Just append
             return
-        
-        # Suggest default name
-        base, ext = os.path.splitext(self.pdf_path)
-        default_name = f"{os.path.basename(base)}_modified{ext}"
-        
-        filename = filedialog.asksaveasfilename(
-            title="Save PDF as",
-            defaultextension=".pdf",
-            initialfile=default_name,
-            filetypes=[("PDF files", "*.pdf"), ("All files", "*.*")]
-        )
-        
-        if filename:
-            self.output_path = filename
-            self.output_label.config(text=os.path.basename(filename), fg="#333333")
-            self.message_banner.show_message(f"Output path set: {os.path.basename(filename)}", "success")
-    
-    def load_pdf(self, filename):
+            
+        # Find the highest index selected to insert after
+        insert_idx = max(self.selected_indices) + 1
+        self.add_pdf(insert_index=insert_idx)
+
+    def process_files(self, filenames, insert_index=None):
+        # If this is the first file loaded, set default output path
+        if not self.pages_data and len(filenames) > 0:
+            first_file = filenames[0]
+            folder = os.path.dirname(first_file)
+            name = os.path.splitext(os.path.basename(first_file))[0]
+            default_out = os.path.join(folder, f"{name}_merged.pdf")
+            self.output_var.set(default_out)
+
+        total_new = 0
+        new_pages = []
+
+        # Show loading indicator (cursor)
+        self.root.config(cursor="watch")
+        self.root.update()
+
         try:
-            self.pdf_path = filename
-            reader = PdfReader(filename)
-            self.total_pages = len(reader.pages)
-            self.selected_pages.clear()
+            for fpath in filenames:
+                try:
+                    # Load PDF
+                    reader = PdfReader(fpath)
+                    count = len(reader.pages)
+                    
+                    # Generate thumbnails (Limit resolution for performance)
+                    # Note: Requires Poppler installed
+                    images = convert_from_path(fpath, dpi=40) 
+                    
+                    fname = os.path.basename(fpath)
+                    short_name = (fname[:10] + '..') if len(fname) > 10 else fname
+                    
+                    for i in range(count):
+                        # Create PageData object
+                        img = images[i] if i < len(images) else Image.new('RGB', (100, 130), 'white')
+                        p = PageData(fpath, i, img, f"{short_name}\nPg {i+1}")
+                        new_pages.append(p)
+                        
+                    total_new += count
+                except Exception as e:
+                    self.banner.show_message(f"Error reading {os.path.basename(fpath)}: {e}", "error")
             
-            # Auto-set output path
-            base, ext = os.path.splitext(filename)
-            self.output_path = f"{base}_modified{ext}"
+            # Insert into main list
+            if insert_index is None:
+                self.pages_data.extend(new_pages)
+            else:
+                self.pages_data[insert_index:insert_index] = new_pages
+                
+            self.refresh_grid()
+            self.banner.show_message(f"Added {total_new} pages", "success")
             
-            self.file_label.config(text=os.path.basename(filename), fg="#333333")
-            self.output_label.config(text=os.path.basename(self.output_path), fg="#333333")
-            self.pages_label.config(text=f"Total: {self.total_pages} pages")
-            self.update_selection_label()
+        finally:
+            self.root.config(cursor="")
+
+    def browse_output(self):
+        f = filedialog.asksaveasfilename(defaultextension=".pdf", filetypes=[("PDF files", "*.pdf")])
+        if f: self.output_var.set(f)
+
+    def clear_all(self):
+        self.pages_data.clear()
+        self.selected_indices.clear()
+        self.output_var.set("")
+        self.refresh_grid()
+        self.banner.show_message("All pages cleared", "info")
+
+    def remove_selected(self):
+        if not self.selected_indices:
+            self.banner.show_message("No pages selected to remove", "warning")
+            return
             
-            self.message_banner.show_message(f"Loaded PDF with {self.total_pages} pages", "success")
+        # Sort indices in descending order to delete correctly
+        for idx in sorted(self.selected_indices, reverse=True):
+            del self.pages_data[idx]
             
-            # Generate previews
-            self.generate_previews(filename)
-            self.display_pages()
-            
-        except Exception as e:
-            self.message_banner.show_message(f"Failed to load PDF: {str(e)}", "error")
-    
-    def generate_previews(self, filename):
-        """Generate thumbnail previews for pages"""
-        self.preview_images = []
-        try:
-            if self.total_pages <= 50:
-                images = convert_from_path(filename, dpi=50, first_page=1, 
-                                          last_page=min(50, self.total_pages))
-                self.preview_images = images
-        except Exception as e:
-            print(f"Preview generation failed (not critical): {e}")
-    
-    def display_pages(self):
-        # Clear existing thumbnails
-        for widget in self.scrollable_frame.winfo_children():
-            widget.destroy()
+        self.selected_indices.clear()
+        self.refresh_grid()
+        self.banner.show_message("Selected pages removed", "info")
+
+    def refresh_grid(self):
+        # Clean UI
+        for w in self.page_widgets: w.destroy()
+        self.page_widgets.clear()
         
-        self.thumbnails = []
-        
-        # Create grid of page thumbnails
+        # Re-render
         cols = 6
-        for i in range(self.total_pages):
-            page_num = i + 1
-            row = i // cols
-            col = i % cols
+        for i, p_data in enumerate(self.pages_data):
+            row, col = divmod(i, cols)
             
-            thumb = PageThumbnail(self.scrollable_frame, page_num, 
-                                 page_num in self.selected_pages,
-                                 self.toggle_page)
-            thumb.grid(row=row, column=col, padx=8, pady=8)
+            thumb = DraggableThumbnail(self.scrollable_frame, p_data, 
+                                     self.on_thumb_click,
+                                     self.on_drag_start,
+                                     self.on_drag_end)
+            thumb.grid(row=row, column=col, padx=10, pady=10)
             
-            # Add preview if available
-            if i < len(self.preview_images):
-                thumb.set_preview(self.preview_images[i])
+            # Restore selection state
+            if i in self.selected_indices:
+                thumb.set_selected(True)
+                
+            self.page_widgets.append(thumb)
             
-            self.thumbnails.append(thumb)
-    
-    def toggle_page(self, page_num):
-        if page_num in self.selected_pages:
-            self.selected_pages.remove(page_num)
+        self.info_label.config(text=f"{len(self.pages_data)} Pages | Drag to reorder")
+
+    # --- Interaction Logic ---
+
+    def on_thumb_click(self, widget, is_ctrl_pressed):
+        # Find index of widget
+        try:
+            idx = self.page_widgets.index(widget)
+        except ValueError: return
+
+        if is_ctrl_pressed:
+            # Toggle
+            if idx in self.selected_indices:
+                self.selected_indices.remove(idx)
+                widget.set_selected(False)
+            else:
+                self.selected_indices.add(idx)
+                widget.set_selected(True)
         else:
-            self.selected_pages.add(page_num)
+            # Exclusive select
+            for old_idx in self.selected_indices:
+                if old_idx < len(self.page_widgets):
+                    self.page_widgets[old_idx].set_selected(False)
+            self.selected_indices.clear()
+            
+            self.selected_indices.add(idx)
+            widget.set_selected(True)
+
+    def on_drag_start(self, widget, event):
+        try:
+            idx = self.page_widgets.index(widget)
+            self.drag_data["item_idx"] = idx
+            
+            # Create semi-transparent ghost window
+            top = tk.Toplevel(self.root)
+            top.overrideredirect(True)
+            top.attributes('-alpha', 0.6)
+            
+            # Copy image to label
+            lbl = tk.Label(top, image=widget.photo, bg="white", relief=tk.SOLID, bd=2)
+            lbl.pack()
+            
+            self.drag_data["window"] = top
+            self.update_drag_window(event)
+            
+        except ValueError: pass
+
+    def on_drag_motion_global(self, event):
+        # This would be needed if dragging outside the widget, 
+        # but Toplevel follows mouse via bind on widget
+        pass
+
+    def update_drag_window(self, event):
+        if self.drag_data["window"]:
+            x, y = self.root.winfo_pointerx(), self.root.winfo_pointery()
+            self.drag_data["window"].geometry(f"+{x+10}+{y+10}")
+
+    def on_drag_end(self, event):
+        if self.drag_data["window"]:
+            self.drag_data["window"].destroy()
+            self.drag_data["window"] = None
         
-        # Update thumbnail appearance
-        for thumb in self.thumbnails:
-            if thumb.page_num == page_num:
-                thumb.set_selected(page_num in self.selected_pages)
+        start_idx = self.drag_data["item_idx"]
+        if start_idx is None: return
+
+        # Calculate where we dropped it
+        # We need relative coordinates to the scrollable frame
+        x_root, y_root = self.root.winfo_pointerx(), self.root.winfo_pointery()
         
-        self.update_selection_label()
-    
-    def select_all(self):
-        if not self.pdf_path:
-            self.message_banner.show_message("Please open a PDF file first", "warning")
+        # Find the nearest widget
+        nearest_idx = start_idx
+        min_dist = float('inf')
+        
+        for i, widget in enumerate(self.page_widgets):
+            wx = widget.winfo_rootx() + widget.winfo_width() // 2
+            wy = widget.winfo_rooty() + widget.winfo_height() // 2
+            dist = math.hypot(wx - x_root, wy - y_root)
+            
+            if dist < min_dist:
+                min_dist = dist
+                nearest_idx = i
+
+        if nearest_idx != start_idx:
+            # Move item in data list
+            item = self.pages_data.pop(start_idx)
+            self.pages_data.insert(nearest_idx, item)
+            
+            # Clear selection to avoid confusion or remap it
+            self.selected_indices.clear()
+            self.selected_indices.add(nearest_idx)
+            
+            self.refresh_grid()
+            self.banner.show_message("Page reordered", "info")
+
+    # --- Save ---
+
+    def save_pdf(self):
+        if not self.pages_data:
+            self.banner.show_message("No pages to save!", "error")
             return
-        
-        self.selected_pages = set(range(1, self.total_pages + 1))
-        for thumb in self.thumbnails:
-            thumb.set_selected(True)
-        self.update_selection_label()
-        self.message_banner.show_message(f"Selected all {self.total_pages} pages", "info")
-    
-    def clear_selection(self):
-        if not self.selected_pages:
+            
+        output_path = self.output_var.get()
+        if not output_path:
+            self.banner.show_message("Please select an output file path", "warning")
+            self.browse_output()
             return
-        
-        count = len(self.selected_pages)
-        self.selected_pages.clear()
-        for thumb in self.thumbnails:
-            thumb.set_selected(False)
-        self.update_selection_label()
-        self.message_banner.show_message(f"Cleared {count} selected pages", "info")
-    
-    def update_selection_label(self):
-        if self.selected_pages:
-            count = len(self.selected_pages)
-            self.selected_label.config(
-                text=f"⚠ {count} page{'s' if count != 1 else ''} marked for deletion"
-            )
-        else:
-            self.selected_label.config(text="")
-    
-    def delete_pages(self):
-        if not self.pdf_path:
-            self.message_banner.show_message("Please open a PDF file first", "warning")
-            return
-        
-        if not self.selected_pages:
-            self.message_banner.show_message("Please select pages to delete", "warning")
-            return
-        
-        count = len(self.selected_pages)
-        remaining = self.total_pages - count
-        
-        if remaining == 0:
-            self.message_banner.show_message("Cannot delete all pages! At least one page must remain.", "error")
-            return
+
+        self.root.config(cursor="wait")
+        self.root.update()
         
         try:
-            reader = PdfReader(self.pdf_path)
             writer = PdfWriter()
             
-            # Add pages that should be kept
-            for i in range(len(reader.pages)):
-                page_num = i + 1
-                if page_num not in self.selected_pages:
-                    writer.add_page(reader.pages[i])
+            # Cache open file handles to avoid opening/closing repeatedly
+            open_files = {} 
             
-            # Use the output path
-            output_path = self.output_path
+            for page_data in self.pages_data:
+                src = page_data.source_path
+                if src not in open_files:
+                    open_files[src] = open(src, 'rb')
+                    
+                # We need a fresh reader for the open file handle or PyPDF2 gets confused
+                # efficient way: Read objects on demand
+                # Simpler robust way for GUI: Re-read page
+                r = PdfReader(open_files[src])
+                writer.add_page(r.pages[page_data.page_index])
             
-            # Handle existing file
-            if os.path.exists(output_path):
-                base, ext = os.path.splitext(output_path)
-                counter = 1
-                while os.path.exists(output_path):
-                    output_path = f"{base}_{counter}{ext}"
-                    counter += 1
-            
-            # Save
-            with open(output_path, 'wb') as output_file:
-                writer.write(output_file)
-            
-            self.message_banner.show_message(
-                f"Success! Deleted {count} page{'s' if count != 1 else ''}, saved to {os.path.basename(output_path)}", 
-                "success"
-            )
-            
-            # Reload the modified PDF
-            self.load_pdf(output_path)
+            with open(output_path, "wb") as f_out:
+                writer.write(f_out)
+                
+            # Close handles
+            for f in open_files.values():
+                f.close()
+                
+            self.banner.show_message(f"Successfully saved to {os.path.basename(output_path)}", "success")
             
         except Exception as e:
-            self.message_banner.show_message(f"Failed to process PDF: {str(e)}", "error")
+            self.banner.show_message(f"Save failed: {e}", "error")
+            print(e)
+        finally:
+            self.root.config(cursor="")
 
 if __name__ == "__main__":
+    try:
+        from ctypes import windll
+        windll.shcore.SetProcessDpiAwareness(1) # Sharp text on Windows
+    except: pass
+    
     root = tk.Tk()
-    app = PDFPageDeleter(root)
+    app = PDFEditorApp(root)
     root.mainloop()
